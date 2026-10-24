@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "471937160258",
+    "project_id": "linkvault-9cd9c",
+    "storage_bucket": "linkvault-9cd9c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:471937160258:android:f5a702a56453504b0909db",
+        "android_client_info": {
+          "package_name": "com.example.linkvault"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB_KF_yAuqDxtopW5sXAPBOuAaPuw5V_io"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
