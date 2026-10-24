@@ -79,29 +79,51 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   final _searchController = TextEditingController();
-  final List<Map<String, String>> _links = [];
+  final List<Map<String, dynamic>> _links = [];
 
   String _selectedCategory = 'All';
+  
+  final List<String> _availableCategories = [
+  'Development',
+  'Learning',
+  'Design',
+  'Tools',
+  'Other',
+];
 
   static const _background = Color(0xFF0B1120);
   static const _surface = Color(0xFF172033);
   static const _accent = Color(0xFF818CF8);
 
-  List<Map<String, String>> get _filteredLinks {
+
+  
+  List<Map<String, dynamic>> get _filteredLinks {
     final query = _searchController.text.toLowerCase();
 
     return _links.where((link) {
+      final rawCategories = link['categories'];
+
+      final List<String> categories = rawCategories is List
+          ? rawCategories.map((item) => item.toString()).toList()
+          : link['category'] is String
+              ? [link['category'] as String]
+              : [];
+
       final matchesCategory = _selectedCategory == 'All' ||
-          link['category'] == _selectedCategory;
+          categories.contains(_selectedCategory);
 
       final matchesSearch =
-          (link['title'] ?? '').toLowerCase().contains(query) ||
-          (link['url'] ?? '').toLowerCase().contains(query) ||
-          (link['category'] ?? '').toLowerCase().contains(query);
+          (link['title'] ?? '').toString().toLowerCase().contains(query) ||
+          (link['url'] ?? '').toString().toLowerCase().contains(query) ||
+          categories.any(
+            (category) => category.toLowerCase().contains(query),
+          );
 
       return matchesCategory && matchesSearch;
     }).toList();
   }
+
+
 
   @override
   void dispose() {
@@ -165,9 +187,16 @@ class _DashboardPageState extends State<DashboardPage> {
 
   
 Future<void> _addLink() async {
-  final result = await showDialog<Map<String, String>>(
+  final result = await showDialog<Map<String, dynamic>>(
     context: context,
-    builder: (_) => const AddLinkDialog(),
+    builder: (_) => AddLinkDialog(
+      availableCategories: _availableCategories,
+      onCategoryCreated: () {
+        if (mounted) {
+          setState(() {});
+        }
+      },
+    ),  
   );
 
   if (!mounted || result == null) return;
@@ -186,14 +215,7 @@ Future<void> _addLink() async {
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     final filteredLinks = _filteredLinks;
-    final categories = [
-      'All',
-      'Development',
-      'Learning',
-      'Design',
-      'Tools',
-      'Other',
-    ];
+    final categories = ['All', ..._availableCategories];
 
     return Scaffold(
       backgroundColor: _background,
@@ -447,13 +469,23 @@ Future<void> _addLink() async {
                                   color: const Color(0xFF818CF8),
                                 ),
                         ),
-                        title: Text(
-                          link['title']!,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
+                        title: Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: (link['categories'] as List? ?? [])
+                                .map(
+                                  (category) => Chip(
+                                    label: Text(category.toString()),
+                                    visualDensity: VisualDensity.compact,
+                                    backgroundColor: const Color(0xFF273449),
+                                    labelStyle: const TextStyle(
+                                      color: Color(0xFF818CF8),
+                                    ),
+                                    side: BorderSide.none,
+                                  ),
+                                )
+                                .toList(),
                           ),
-                        ),
                         subtitle: Padding(
                           padding: const EdgeInsets.only(top: 8),
                           child: Column(
@@ -462,11 +494,6 @@ Future<void> _addLink() async {
                               Text(
                                 link['url'] ?? '',
                                 style: const TextStyle(color: Colors.white60),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                link['category'] ?? 'Other',
-                                style: const TextStyle(color: Color(0xFF818CF8)),
                               ),
                               if ((link['note'] ?? '').isNotEmpty) ...[
                                 const SizedBox(height: 8),
@@ -1138,7 +1165,14 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
 }
 
 class AddLinkDialog extends StatefulWidget {
-  const AddLinkDialog({super.key});
+  final List<String> availableCategories;
+  final VoidCallback onCategoryCreated;
+
+  const AddLinkDialog({
+    super.key,
+    required this.availableCategories,
+    required this.onCategoryCreated,
+  });
 
   @override
   State<AddLinkDialog> createState() => _AddLinkDialogState();
@@ -1150,7 +1184,7 @@ class _AddLinkDialogState extends State<AddLinkDialog> {
   final _titleController = TextEditingController();
   final _noteController = TextEditingController();
 
-  String _category = 'Other';
+  final Set<String> _selectedCategories = {'Other'};
 
   @override
 void dispose() {
@@ -1158,6 +1192,71 @@ void dispose() {
   _titleController.dispose();
   _noteController.dispose();
   super.dispose();
+}
+Future<void> _createCategory() async {
+  final controller = TextEditingController();
+
+  final category = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Create category'),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        decoration: const InputDecoration(
+          labelText: 'Category name',
+          hintText: 'e.g. Machine Learning',
+        ),
+        onSubmitted: (_) {
+          final name = controller.text.trim();
+          if (name.isNotEmpty) {
+            Navigator.pop(dialogContext, name);
+          }
+        },
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final name = controller.text.trim();
+            if (name.isNotEmpty) {
+              Navigator.pop(dialogContext, name);
+            }
+          },
+          child: const Text('Create'),
+        ),
+      ],
+    ),
+  );
+
+  controller.dispose();
+
+  if (category == null || !mounted) return;
+
+  final normalizedCategory = category.trim();
+
+  if (normalizedCategory.isEmpty) return;
+
+  final existingCategory = widget.availableCategories.where(
+    (item) => item.toLowerCase() == normalizedCategory.toLowerCase(),
+  );
+
+  setState(() {
+    if (existingCategory.isEmpty) {
+      widget.availableCategories.add(normalizedCategory);
+    }
+
+    final savedCategory = existingCategory.isEmpty
+        ? normalizedCategory
+        : existingCategory.first;
+
+    _selectedCategories.add(savedCategory);
+  });
+
+  widget.onCategoryCreated();
 }
 
   @override
@@ -1220,29 +1319,43 @@ void dispose() {
                 ),
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _category,
-                dropdownColor: const Color(0xFF172033),
-                decoration: const InputDecoration(
-                  labelText: 'Category',
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Categories',
+                  style: Theme.of(context).textTheme.titleSmall,
                 ),
-                items: [
-                  'Development',
-                  'Learning',
-                  'Design',
-                  'Tools',
-                  'Other',
-                ].map((item) {
-                  return DropdownMenuItem(
-                    value: item,
-                    child: Text(item),
+              ),
+              const SizedBox(height: 8),
+
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: widget.availableCategories.map((category) {
+                  final selected = _selectedCategories.contains(category);
+
+                  return FilterChip(
+                    label: Text(category),
+                    selected: selected,
+                    onSelected: (value) {
+                      setState(() {
+                        if (value) {
+                          _selectedCategories.add(category);
+                        } else {
+                          _selectedCategories.remove(category);
+                        }
+                      });
+                    },
                   );
                 }).toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _category = value);
-                  }
-                },
+              ),
+
+              const SizedBox(height: 8),
+
+              TextButton.icon(
+                onPressed: _createCategory,
+                icon: const Icon(Icons.add),
+                label: const Text('Create new category'),
               ),
             ],
           ),
@@ -1256,11 +1369,10 @@ void dispose() {
         FilledButton(
           onPressed: () {
             if (!_formKey.currentState!.validate()) return;
-
             Navigator.pop(context, {
               'url': _urlController.text.trim(),
               'title': _titleController.text.trim(),
-              'category': _category,
+              'categories': _selectedCategories.toList(),
               'note': _noteController.text.trim(),
             });
           },
