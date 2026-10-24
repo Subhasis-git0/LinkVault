@@ -43,7 +43,7 @@ LinkVault is a Flutter-based web application designed to help you save, organize
 \- Attach personal notes explaining why a link is useful.
 
 \- Assign a category to each bookmark.
-
+\- Edit saved bookmark titles, URLs, notes, and categories.
 \- Remove bookmarks from the collection.
 
 
@@ -98,7 +98,7 @@ LinkVault is a Flutter-based web application designed to help you save, organize
 
 | GitHub REST API | Planned repository metadata integration |
 
-| Cloud Firestore | Planned persistent bookmark storage |
+| Cloud Firestore | Per-user persistent bookmarks and categories |
 
 | Firebase Storage | Planned screenshot storage |
 
@@ -294,7 +294,7 @@ The production web files will be generated in `build/web/`.
 
 \- \[x] Firebase sign-in and persistent sessions
 
-\- \[x] Save website and GitHub URLs in the current session
+\- \[x] Save website and GitHub URLs in Cloud Firestore
 
 \- \[x] Add personal notes to bookmarks
 
@@ -302,11 +302,11 @@ The production web files will be generated in `build/web/`.
 
 \- \[x] Platform-specific icons
 
-\- \[ ] Persistent bookmark storage using Cloud Firestore
+\- \[x] Persistent bookmark storage using Cloud Firestore
 
 \- \[ ] Multiple categories per bookmark
 
-\- \[ ] Edit bookmark details and notes
+\- \[x] Edit bookmark details and notes
 
 \- \[ ] Automatic website title and description extraction
 
@@ -326,11 +326,9 @@ The production web files will be generated in `build/web/`.
 
 
 
-LinkVault currently uses Firebase Authentication for user accounts. Bookmark data is currently held in application memory, so saved links and notes are not yet guaranteed to survive a browser refresh.
+LinkVault uses Firebase Authentication for user accounts and stores bookmarks and categories in user-scoped Cloud Firestore collections. The included `firestore.rules` allows signed-in users to access only their own `users/{uid}/bookmarks` and `users/{uid}/categories` data. Deploy the rules with `firebase deploy --only firestore:rules` after selecting the Firebase project, or configure equivalent rules in the Firebase Console.
 
-
-
-Cloud Firestore persistence and per-user data access rules are planned for a future development stage.
+Firestore security rules must restrict access to the authenticated user's own `users/{uid}` document path. Configure and deploy rules in the Firebase Console or with the Firebase CLI before using the app.
 
 
 
@@ -391,6 +389,3 @@ Developed as a hands-on project to learn Flutter development, Firebase integrati
 
 
 ⭐ If you're interested in the development of LinkVault, follow the repository to see how it evolves.
-
-
-

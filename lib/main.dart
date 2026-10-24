@@ -1,19 +1,20 @@
-
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+
 import 'firebase_options.dart';
+
 import 'package:firebase_auth/firebase_auth.dart';
-import 'models/bookmark.dart';
+
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 import 'package:simple_icons/simple_icons.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   runApp(const LinkVaultApp());
 }
@@ -52,9 +53,7 @@ class AuthGate extends StatelessWidget {
           return const Scaffold(
             backgroundColor: Color(0xFF0B1120),
             body: Center(
-              child: CircularProgressIndicator(
-                color: Color(0xFF818CF8),
-              ),
+              child: CircularProgressIndicator(color: Color(0xFF818CF8)),
             ),
           );
         }
@@ -69,7 +68,6 @@ class AuthGate extends StatelessWidget {
   }
 }
 
-
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
 
@@ -82,21 +80,108 @@ class _DashboardPageState extends State<DashboardPage> {
   final List<Map<String, dynamic>> _links = [];
 
   String _selectedCategory = 'All';
-  
+
   final List<String> _availableCategories = [
-  'Development',
-  'Learning',
-  'Design',
-  'Tools',
-  'Other',
-];
+    'Development',
+    'Learning',
+    'Design',
+    'Tools',
+    'Other',
+  ];
+  CollectionReference<Map<String, dynamic>> get _bookmarksRef {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      throw StateError('No signed-in user found.');
+    }
+
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('bookmarks');
+  }
+
+  CollectionReference<Map<String, dynamic>> get _categoriesRef {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      throw StateError('No signed-in user found.');
+    }
+
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('categories');
+  }
+
+  Future<void> _loadFirestoreData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final results = await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
+        _bookmarksRef.get(),
+        _categoriesRef.get(),
+      ]);
+
+      final bookmarkSnapshot = results[0];
+      final categorySnapshot = results[1];
+
+      final loadedLinks = bookmarkSnapshot.docs.map((doc) {
+        return <String, dynamic>{...doc.data(), 'id': doc.id};
+      }).toList();
+
+      final customCategories = categorySnapshot.docs
+          .map((doc) => doc.data()['name'])
+          .whereType<String>();
+
+      if (!mounted) return;
+
+      setState(() {
+        _links
+          ..clear()
+          ..addAll(loadedLinks);
+
+        for (final category in customCategories) {
+          if (!_availableCategories.any(
+            (existing) => existing.toLowerCase() == category.toLowerCase(),
+          )) {
+            _availableCategories.add(category);
+          }
+        }
+      });
+    } catch (error) {
+      debugPrint('Error loading LinkVault data: $error');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not load your saved data.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _saveCategory(String category) async {
+    await _categoriesRef.add({
+      'name': category,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    if (!mounted) return;
+
+    setState(() {
+      if (!_availableCategories.any(
+        (existing) => existing.toLowerCase() == category.toLowerCase(),
+      )) {
+        _availableCategories.add(category);
+      }
+    });
+  }
 
   static const _background = Color(0xFF0B1120);
   static const _surface = Color(0xFF172033);
   static const _accent = Color(0xFF818CF8);
 
-
-  
   List<Map<String, dynamic>> get _filteredLinks {
     final query = _searchController.text.toLowerCase();
 
@@ -106,110 +191,185 @@ class _DashboardPageState extends State<DashboardPage> {
       final List<String> categories = rawCategories is List
           ? rawCategories.map((item) => item.toString()).toList()
           : link['category'] is String
-              ? [link['category'] as String]
-              : [];
+          ? [link['category'] as String]
+          : [];
 
-      final matchesCategory = _selectedCategory == 'All' ||
-          categories.contains(_selectedCategory);
+      final matchesCategory =
+          _selectedCategory == 'All' || categories.contains(_selectedCategory);
 
       final matchesSearch =
           (link['title'] ?? '').toString().toLowerCase().contains(query) ||
           (link['url'] ?? '').toString().toLowerCase().contains(query) ||
-          categories.any(
-            (category) => category.toLowerCase().contains(query),
-          );
+          categories.any((category) => category.toLowerCase().contains(query));
 
       return matchesCategory && matchesSearch;
     }).toList();
   }
 
-
+  @override
+  void initState() {
+    super.initState();
+    _loadFirestoreData();
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
   }
-  Future<Map<String, dynamic>?> _fetchGitHubRepo(
-  String url,
-) async {
-  final uri = Uri.tryParse(url.trim());
 
-  if (uri == null || uri.host.toLowerCase() != 'github.com') {
-    return null;
-  }
+  Future<Map<String, dynamic>?> _fetchGitHubRepo(String url) async {
+    final uri = Uri.tryParse(url.trim());
 
-  final parts = uri.pathSegments;
+    if (uri == null || uri.host.toLowerCase() != 'github.com') {
+      return null;
+    }
 
-  if (parts.length < 2) {
-    return null;
-  }
+    final parts = uri.pathSegments;
 
-  final owner = parts[0];
-  final repo = parts[1].replaceFirst(RegExp(r'\.git$'), '');
+    if (parts.length < 2) {
+      return null;
+    }
 
-  if (owner.isEmpty || repo.isEmpty) {
-    return null;
-  }
+    final owner = parts[0];
+    final repo = parts[1].replaceFirst(RegExp(r'\.git$'), '');
 
-  final apiUrl = Uri.https(
-    'api.github.com',
-    '/repos/$owner/$repo',
-  );
+    if (owner.isEmpty || repo.isEmpty) {
+      return null;
+    }
 
-  final response = await http.get(
-    apiUrl,
-    headers: {
-      'Accept': 'application/vnd.github+json',
-    },
-  );
+    final apiUrl = Uri.https('api.github.com', '/repos/$owner/$repo');
 
-  if (response.statusCode != 200) {
-    throw Exception(
-      'GitHub could not find this repository '
-      '(HTTP ${response.statusCode}).',
+    final response = await http.get(
+      apiUrl,
+      headers: {'Accept': 'application/vnd.github+json'},
     );
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'GitHub could not find this repository '
+        '(HTTP ${response.statusCode}).',
+      );
+    }
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+    return {
+      'title': data['full_name'] ?? '$owner/$repo',
+      'url': data['html_url'] ?? url,
+      'description': data['description'] ?? 'No description provided.',
+      'language': data['language'] ?? 'Not specified',
+      'stars': data['stargazers_count'] ?? 0,
+      'forks': data['forks_count'] ?? 0,
+      'ownerAvatar': data['owner']?['avatar_url'] ?? '',
+      'type': 'github',
+    };
   }
 
-  final data = jsonDecode(response.body) as Map<String, dynamic>;
+  Future<void> _addLink() async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => AddLinkDialog(
+        availableCategories: _availableCategories,
+        onCategoryCreated: _saveCategory,
+      ),
+    );
 
-  return {
-    'title': data['full_name'] ?? '$owner/$repo',
-    'url': data['html_url'] ?? url,
-    'description': data['description'] ?? 'No description provided.',
-    'language': data['language'] ?? 'Not specified',
-    'stars': data['stargazers_count'] ?? 0,
-    'forks': data['forks_count'] ?? 0,
-    'ownerAvatar': data['owner']?['avatar_url'] ?? '',
-    'type': 'github',
-  };
-}
+    if (!mounted || result == null) return;
 
-  
-Future<void> _addLink() async {
-  final result = await showDialog<Map<String, dynamic>>(
-    context: context,
-    builder: (_) => AddLinkDialog(
-      availableCategories: _availableCategories,
-      onCategoryCreated: () {
-        if (mounted) {
-          setState(() {});
+    try {
+      final document = await _bookmarksRef.add({
+        ...result,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+
+      setState(() {
+        _links.insert(0, {...result, 'id': document.id});
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Link added to your library')),
+      );
+    } catch (error) {
+      debugPrint('Error saving LinkVault bookmark: $error');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save your link.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _editLink(Map<String, dynamic> link) async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => AddLinkDialog(
+        availableCategories: _availableCategories,
+        onCategoryCreated: _saveCategory,
+        initialLink: link,
+      ),
+    );
+
+    if (!mounted || result == null) return;
+
+    final id = link['id'];
+    try {
+      if (id is! String || id.isEmpty) {
+        throw StateError('Cannot update a bookmark without a Firestore ID.');
+      }
+
+      await _bookmarksRef.doc(id).update(result);
+
+      if (!mounted) return;
+
+      setState(() {
+        final index = _links.indexWhere((item) => item['id'] == id);
+        if (index != -1) {
+          _links[index] = {..._links[index], ...result};
         }
-      },
-    ),  
-  );
+      });
 
-  if (!mounted || result == null) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Bookmark updated')));
+    } catch (error) {
+      debugPrint('Error updating LinkVault bookmark: $error');
 
-  setState(() {
-    _links.insert(0, result);
-  });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not update your bookmark.')),
+        );
+      }
+    }
+  }
 
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('Link added to your library')),
-  );
-}
+  Future<void> _deleteLink(Map<String, dynamic> link) async {
+    final id = link['id'];
+    try {
+      if (id is! String || id.isEmpty) {
+        throw StateError('Cannot delete a bookmark without a Firestore ID.');
+      }
 
+      await _bookmarksRef.doc(id).delete();
+
+      if (!mounted) return;
+
+      setState(() => _links.remove(link));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Link removed from your library')),
+      );
+    } catch (error) {
+      debugPrint('Error deleting LinkVault bookmark: $error');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not remove your link.')),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -226,10 +386,7 @@ Future<void> _addLink() async {
           children: [
             Icon(Icons.bookmarks_rounded, color: _accent),
             SizedBox(width: 10),
-            Text(
-              'LinkVault',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
+            Text('LinkVault', style: TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
         actions: [
@@ -237,10 +394,7 @@ Future<void> _addLink() async {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Center(
-                child: Text(
-                  user!.email!,
-                  style: const TextStyle(fontSize: 12),
-                ),
+                child: Text(user!.email!, style: const TextStyle(fontSize: 12)),
               ),
             ),
           IconButton(
@@ -457,8 +611,10 @@ Future<void> _addLink() async {
                         contentPadding: const EdgeInsets.all(16),
                         leading: CircleAvatar(
                           backgroundColor: const Color(0xFF273449),
-                          child: (Uri.tryParse(link['url'] ?? '')?.host.toLowerCase() ==
-                                      'github.com')
+                          child:
+                              (Uri.tryParse(link['url'] ?? '')?.host
+                                      .toLowerCase() ==
+                                  'github.com')
                               ? const Icon(
                                   SimpleIcons.github,
                                   color: Colors.white,
@@ -469,23 +625,38 @@ Future<void> _addLink() async {
                                   color: const Color(0xFF818CF8),
                                 ),
                         ),
-                        title: Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: (link['categories'] as List? ?? [])
-                                .map(
-                                  (category) => Chip(
-                                    label: Text(category.toString()),
-                                    visualDensity: VisualDensity.compact,
-                                    backgroundColor: const Color(0xFF273449),
-                                    labelStyle: const TextStyle(
-                                      color: Color(0xFF818CF8),
+                        title: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              (link['title'] ?? '').toString(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: (link['categories'] as List? ?? [])
+                                  .map(
+                                    (category) => Chip(
+                                      label: Text(category.toString()),
+                                      visualDensity: VisualDensity.compact,
+                                      backgroundColor: const Color(0xFF273449),
+                                      labelStyle: const TextStyle(
+                                        color: Color(0xFF818CF8),
+                                      ),
+                                      side: BorderSide.none,
                                     ),
-                                    side: BorderSide.none,
-                                  ),
-                                )
-                                .toList(),
-                          ),
+                                  )
+                                  .toList(),
+                            ),
+                          ],
+                        ),
                         subtitle: Padding(
                           padding: const EdgeInsets.only(top: 8),
                           child: Column(
@@ -505,15 +676,26 @@ Future<void> _addLink() async {
                             ],
                           ),
                         ),
-                        trailing: IconButton(
-                          tooltip: 'Remove link',
-                          icon: const Icon(
-                            Icons.delete_outline,
-                            color: Colors.white70,
-                          ),
-                          onPressed: () {
-                            setState(() => _links.remove(link));
-                          },
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Edit bookmark',
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                color: Colors.white70,
+                              ),
+                              onPressed: () => _editLink(link),
+                            ),
+                            IconButton(
+                              tooltip: 'Remove link',
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                color: Colors.white70,
+                              ),
+                              onPressed: () => _deleteLink(link),
+                            ),
+                          ],
                         ),
                         onTap: () {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -535,6 +717,7 @@ Future<void> _addLink() async {
       ),
     );
   }
+
   IconData _platformIcon(String url) {
     final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
 
@@ -587,10 +770,7 @@ Future<void> _addLink() async {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                Text(
-                  label,
-                  style: const TextStyle(color: Colors.white60),
-                ),
+                Text(label, style: const TextStyle(color: Colors.white60)),
               ],
             ),
           ),
@@ -599,8 +779,6 @@ Future<void> _addLink() async {
     );
   }
 }
-
-
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -626,73 +804,67 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _handleSignIn() async {
-  if (!_formKey.currentState!.validate()) {
-    return;
-  }
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
 
-  setState(() {
-    _isLoading = true;
-  });
+    setState(() {
+      _isLoading = true;
+    });
 
-  try {
-    final credential =
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
-      email: _emailController.text.trim(),
-      password: _passwordController.text,
-    );
+    try {
+      final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Welcome back, ${credential.user?.email}!',
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Welcome back, ${credential.user?.email}!')),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+
+      String message;
+
+      switch (e.code) {
+        case 'invalid-credential':
+        case 'wrong-password':
+        case 'user-not-found':
+          message = 'Incorrect email or password.';
+          break;
+        case 'invalid-email':
+          message = 'Please enter a valid email address.';
+          break;
+        case 'too-many-requests':
+          message = 'Too many attempts. Please try again later.';
+          break;
+        case 'network-request-failed':
+          message = 'Check your internet connection.';
+          break;
+        default:
+          message = 'Sign in failed. Please try again.';
+      }
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Something went wrong. Please try again.'),
         ),
-      ),
-    );
-  } on FirebaseAuthException catch (e) {
-    if (!mounted) return;
-
-    String message;
-
-    switch (e.code) {
-      case 'invalid-credential':
-      case 'wrong-password':
-      case 'user-not-found':
-        message = 'Incorrect email or password.';
-        break;
-      case 'invalid-email':
-        message = 'Please enter a valid email address.';
-        break;
-      case 'too-many-requests':
-        message = 'Too many attempts. Please try again later.';
-        break;
-      case 'network-request-failed':
-        message = 'Check your internet connection.';
-        break;
-      default:
-        message = 'Sign in failed. Please try again.';
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
-  } catch (e) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Something went wrong. Please try again.'),
-      ),
-    );
-  } finally {
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-      });
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -726,18 +898,12 @@ class _LoginPageState extends State<LoginPage> {
                   const Text(
                     'Your internet toolbox, organized.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: Color(0xFF9CA3AF),
-                    ),
+                    style: TextStyle(fontSize: 15, color: Color(0xFF9CA3AF)),
                   ),
                   const SizedBox(height: 40),
                   const Text(
                     'Welcome back',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 8),
                   const Text(
@@ -762,9 +928,8 @@ class _LoginPageState extends State<LoginPage> {
                         return 'Please enter your email address';
                       }
 
-                      if (!RegExp(
-                        r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-                      ).hasMatch(value.trim())) {
+                      if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                          .hasMatch(value.trim())) {
                         return 'Please enter a valid email address';
                       }
 
@@ -828,13 +993,13 @@ class _LoginPageState extends State<LoginPage> {
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                    )
+                    ),
                   ),
 
                   const SizedBox(height: 24),
 
                   Center(
-                    child: TextButton(                      
+                    child: TextButton(
                       onPressed: () {
                         Navigator.push(
                           context,
@@ -843,9 +1008,7 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         );
                       },
-                      child: const Text(
-                        "Don't have an account? Create one",
-                      ),
+                      child: const Text("Don't have an account? Create one"),
                     ),
                   ),
                 ],
@@ -856,15 +1019,13 @@ class _LoginPageState extends State<LoginPage> {
       ),
     );
   }
-  
 }
 
 class CreateAccountPage extends StatefulWidget {
   const CreateAccountPage({super.key});
 
   @override
-  State<CreateAccountPage> createState() =>
-      _CreateAccountPageState();
+  State<CreateAccountPage> createState() => _CreateAccountPageState();
 }
 
 class _CreateAccountPageState extends State<CreateAccountPage> {
@@ -889,76 +1050,73 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
   }
 
   Future<void> _handleCreateAccount() async {
-  if (!_formKey.currentState!.validate()) {
-    return;
-  }
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
 
-  setState(() {
-    _isLoading = true;
-  });
+    setState(() {
+      _isLoading = true;
+    });
 
-  try {
-    final credential = await FirebaseAuth.instance
-        .createUserWithEmailAndPassword(
-      email: _emailController.text.trim(),
-      password: _passwordController.text,
-    );
+    try {
+      final credential = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(
+            email: _emailController.text.trim(),
+            password: _passwordController.text,
+          );
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Account created for ${credential.user?.email}',
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Account created for ${credential.user?.email}'),
         ),
-      ),
-    );
+      );
 
-    Navigator.pop(context);
-  } on FirebaseAuthException catch (e) {
-    if (!mounted) return;
+      Navigator.pop(context);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
 
-    String message;
+      String message;
 
-    switch (e.code) {
-      case 'email-already-in-use':
-        message = 'This email is already registered.';
-        break;
-      case 'invalid-email':
-        message = 'Please enter a valid email address.';
-        break;
-      case 'weak-password':
-        message = 'Choose a stronger password.';
-        break;
-      case 'operation-not-allowed':
-        message = 'Enable Email/Password in Firebase Console.';
-        break;
-      case 'network-request-failed':
-        message = 'Check your internet connection.';
-        break;
-      default:
-        message = 'Registration failed. Please try again.';
-    }
+      switch (e.code) {
+        case 'email-already-in-use':
+          message = 'This email is already registered.';
+          break;
+        case 'invalid-email':
+          message = 'Please enter a valid email address.';
+          break;
+        case 'weak-password':
+          message = 'Choose a stronger password.';
+          break;
+        case 'operation-not-allowed':
+          message = 'Enable Email/Password in Firebase Console.';
+          break;
+        case 'network-request-failed':
+          message = 'Check your internet connection.';
+          break;
+        default:
+          message = 'Registration failed. Please try again.';
+      }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
-  } catch (e) {
-    if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Something went wrong. Please try again.'),
-      ),
-    );
-  } finally {
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Something went wrong. Please try again.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -987,19 +1145,14 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
                   const Text(
                     'Join LinkVault',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 30,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
 
                   const Text(
                     'Create your account and organize your web.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Color(0xFF9CA3AF),
-                    ),
+                    style: TextStyle(color: Color(0xFF9CA3AF)),
                   ),
                   const SizedBox(height: 32),
 
@@ -1037,9 +1190,8 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
                         return 'Please enter your email address';
                       }
 
-                      if (!RegExp(
-                        r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-                      ).hasMatch(value.trim())) {
+                      if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                          .hasMatch(value.trim())) {
                         return 'Please enter a valid email';
                       }
 
@@ -1099,8 +1251,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
                         ),
                         onPressed: () {
                           setState(() {
-                            _obscureConfirmPassword =
-                                !_obscureConfirmPassword;
+                            _obscureConfirmPassword = !_obscureConfirmPassword;
                           });
                         },
                       ),
@@ -1121,7 +1272,7 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
 
                   SizedBox(
                     height: 52,
-                    child:FilledButton(
+                    child: FilledButton(
                       onPressed: _isLoading ? null : _handleCreateAccount,
                       child: _isLoading
                           ? const SizedBox(
@@ -1136,16 +1287,14 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                    )
+                    ),
                   ),
                   const SizedBox(height: 16),
 
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Flexible(
-                        child: Text("Already have an account?"),
-                      ),
+                      const Flexible(child: Text("Already have an account?")),
                       TextButton(
                         onPressed: () {
                           Navigator.pop(context);
@@ -1166,12 +1315,14 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
 
 class AddLinkDialog extends StatefulWidget {
   final List<String> availableCategories;
-  final VoidCallback onCategoryCreated;
+  final Future<void> Function(String category) onCategoryCreated;
+  final Map<String, dynamic>? initialLink;
 
   const AddLinkDialog({
     super.key,
     required this.availableCategories,
     required this.onCategoryCreated,
+    this.initialLink,
   });
 
   @override
@@ -1184,88 +1335,122 @@ class _AddLinkDialogState extends State<AddLinkDialog> {
   final _titleController = TextEditingController();
   final _noteController = TextEditingController();
 
-  final Set<String> _selectedCategories = {'Other'};
+  final Set<String> _selectedCategories = {};
+
+  bool get _isEditing => widget.initialLink != null;
 
   @override
-void dispose() {
-  _urlController.dispose();
-  _titleController.dispose();
-  _noteController.dispose();
-  super.dispose();
-}
-Future<void> _createCategory() async {
-  final controller = TextEditingController();
+  void initState() {
+    super.initState();
 
-  final category = await showDialog<String>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Create category'),
-      content: TextField(
-        controller: controller,
-        autofocus: true,
-        decoration: const InputDecoration(
-          labelText: 'Category name',
-          hintText: 'e.g. Machine Learning',
-        ),
-        onSubmitted: (_) {
-          final name = controller.text.trim();
-          if (name.isNotEmpty) {
-            Navigator.pop(dialogContext, name);
-          }
-        },
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () {
+    final link = widget.initialLink;
+    if (link == null) {
+      _selectedCategories.add('Other');
+      return;
+    }
+
+    _urlController.text = (link['url'] ?? '').toString();
+    _titleController.text = (link['title'] ?? '').toString();
+    _noteController.text = (link['note'] ?? '').toString();
+
+    final categories = link['categories'];
+    if (categories is List) {
+      _selectedCategories.addAll(categories.map((item) => item.toString()));
+    } else if (link['category'] is String) {
+      _selectedCategories.add(link['category'] as String);
+    }
+  }
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+    _titleController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _createCategory() async {
+    final controller = TextEditingController();
+
+    final category = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Create category'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Category name',
+            hintText: 'e.g. Machine Learning',
+          ),
+          onSubmitted: (_) {
             final name = controller.text.trim();
             if (name.isNotEmpty) {
               Navigator.pop(dialogContext, name);
             }
           },
-          child: const Text('Create'),
         ),
-      ],
-    ),
-  );
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = controller.text.trim();
+              if (name.isNotEmpty) {
+                Navigator.pop(dialogContext, name);
+              }
+            },
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
 
-  controller.dispose();
+    controller.dispose();
 
-  if (category == null || !mounted) return;
+    if (category == null || !mounted) return;
 
-  final normalizedCategory = category.trim();
+    final normalizedCategory = category.trim();
 
-  if (normalizedCategory.isEmpty) return;
+    if (normalizedCategory.isEmpty) return;
 
-  final existingCategory = widget.availableCategories.where(
-    (item) => item.toLowerCase() == normalizedCategory.toLowerCase(),
-  );
-
-  setState(() {
-    if (existingCategory.isEmpty) {
-      widget.availableCategories.add(normalizedCategory);
-    }
+    final existingCategory = widget.availableCategories.where(
+      (item) => item.toLowerCase() == normalizedCategory.toLowerCase(),
+    );
 
     final savedCategory = existingCategory.isEmpty
         ? normalizedCategory
         : existingCategory.first;
 
-    _selectedCategories.add(savedCategory);
-  });
+    if (existingCategory.isEmpty) {
+      try {
+        await widget.onCategoryCreated(normalizedCategory);
+      } catch (error) {
+        debugPrint('Error saving LinkVault category: $error');
 
-  widget.onCategoryCreated();
-}
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not save the category.')),
+          );
+        }
+        return;
+      }
+    }
+
+    setState(() {
+      _selectedCategories.add(savedCategory);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: const Color(0xFF172033),
-      title: const Text(
-        'Save a website or GitHub repository',
-        style: TextStyle(color: Colors.white),
+      title: Text(
+        _isEditing ? 'Edit bookmark' : 'Save a website or GitHub repository',
+        style: const TextStyle(color: Colors.white),
       ),
       content: Form(
         key: _formKey,
@@ -1301,10 +1486,9 @@ Future<void> _createCategory() async {
                   labelText: 'Title',
                   hintText: 'e.g. Flutter',
                 ),
-                validator: (value) =>
-                    value == null || value.trim().isEmpty
-                        ? 'Enter a title'
-                        : null,
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Enter a title'
+                    : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -1376,7 +1560,7 @@ Future<void> _createCategory() async {
               'note': _noteController.text.trim(),
             });
           },
-          child: const Text('Save Link'),
+          child: Text(_isEditing ? 'Save changes' : 'Save Link'),
         ),
       ],
     );
