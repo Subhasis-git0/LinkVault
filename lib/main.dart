@@ -470,40 +470,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
                 const SizedBox(height: 20),
 
-                // Statistics
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final width = constraints.maxWidth;
-                    final columns = width >= 600 ? 3 : 1;
-
-                    return GridView.count(
-                      crossAxisCount: columns,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                      childAspectRatio: columns == 1 ? 4.0 : 2.4,
-                      children: [
-                        _statCard(
-                          Icons.bookmark,
-                          '${_links.length}',
-                          'Saved links',
-                        ),
-                        _statCard(
-                          Icons.folder_outlined,
-                          '${_links.map((e) => e['category']).toSet().length}',
-                          'Categories used',
-                        ),
-                        _statCard(
-                          Icons.filter_alt_outlined,
-                          '${filteredLinks.length}',
-                          'Matching results',
-                        ),
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 24),
 
                 // Category filters
                 const Text(
@@ -603,116 +570,270 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   )
                 else
-                  ...filteredLinks.map((link) {
-                    return Card(
-                      color: _surface,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.all(16),
-                        leading: CircleAvatar(
-                          backgroundColor: const Color(0xFF273449),
-                          child:
-                              (Uri.tryParse(link['url'] ?? '')?.host
-                                      .toLowerCase() ==
-                                  'github.com')
-                              ? const Icon(
-                                  SimpleIcons.github,
-                                  color: Colors.white,
-                                  size: 24,
-                                )
-                              : Icon(
-                                  _platformIcon(link['url'] ?? ''),
-                                  color: const Color(0xFF818CF8),
-                                ),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final width = constraints.maxWidth;
+                      final columns = width >= 900
+                          ? 3
+                          : width >= 560
+                          ? 2
+                          : 1;
+
+                      return GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: filteredLinks.length,
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: columns,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          mainAxisExtent: 224,
                         ),
-                        title: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              (link['title'] ?? '').toString(),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
+                        itemBuilder: (context, index) {
+                          final link = filteredLinks[index];
+                          final url = (link['url'] ?? '').toString();
+                          final rawCategories = link['categories'];
+                          final List<String> linkCategories =
+                              rawCategories is List
+                              ? rawCategories
+                                    .map((item) => item.toString())
+                                    .toList()
+                              : link['category'] is String
+                              ? [link['category'] as String]
+                              : [];
+
+                          return Card(
+                            color: _surface,
+                            margin: EdgeInsets.zero,
+                            clipBehavior: Clip.antiAlias,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              side: BorderSide(
+                                color: Colors.white.withValues(alpha: 0.05),
                               ),
                             ),
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: (link['categories'] as List? ?? [])
-                                  .map(
-                                    (category) => Chip(
-                                      label: Text(category.toString()),
-                                      visualDensity: VisualDensity.compact,
-                                      backgroundColor: const Color(0xFF273449),
-                                      labelStyle: const TextStyle(
-                                        color: Color(0xFF818CF8),
-                                      ),
-                                      side: BorderSide.none,
+                            child: InkWell(
+                              onTap: () {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Website opening will be added next.',
                                     ),
-                                  )
-                                  .toList(),
-                            ),
-                          ],
-                        ),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                link['url'] ?? '',
-                                style: const TextStyle(color: Colors.white60),
-                              ),
-                              if ((link['note'] ?? '').isNotEmpty) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  link['note']!,
-                                  style: const TextStyle(color: Colors.white70),
+                                  ),
+                                );
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        _websiteIcon(url),
+                                        const SizedBox(width: 9),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                (link['title'] ?? 'Untitled')
+                                                    .toString(),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 14,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                Uri.tryParse(url)?.host ?? url,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Colors.white54,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        PopupMenuButton<String>(
+                                          tooltip: 'Bookmark actions',
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(
+                                            minWidth: 40,
+                                            minHeight: 36,
+                                          ),
+                                          iconSize: 19,
+                                          onSelected: (action) {
+                                            if (action == 'edit') {
+                                              _editLink(link);
+                                            } else if (action == 'delete') {
+                                              _deleteLink(link);
+                                            }
+                                          },
+                                          itemBuilder: (context) => const [
+                                            PopupMenuItem(
+                                              value: 'edit',
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.edit_outlined,
+                                                    size: 18,
+                                                  ),
+                                                  SizedBox(width: 8),
+                                                  Text('Edit'),
+                                                ],
+                                              ),
+                                            ),
+                                            PopupMenuItem(
+                                              value: 'delete',
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.delete_outline,
+                                                    size: 18,
+                                                  ),
+                                                  SizedBox(width: 8),
+                                                  Text('Delete'),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      url,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white60,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                    if ((link['note'] ?? '')
+                                        .toString()
+                                        .trim()
+                                        .isNotEmpty) ...[
+                                      const SizedBox(height: 7),
+                                      Text(
+                                        link['note'].toString(),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 12,
+                                          height: 1.3,
+                                        ),
+                                      ),
+                                    ] else ...[
+                                      const SizedBox(height: 7),
+                                      const Text(
+                                        'No personal note',
+                                        maxLines: 1,
+                                        style: TextStyle(
+                                          color: Colors.white38,
+                                          fontSize: 11,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ],
+                                    const Spacer(),
+                                    if (linkCategories.isNotEmpty)
+                                      SizedBox(
+                                        height: 27,
+                                        child: ListView.separated(
+                                          scrollDirection: Axis.horizontal,
+                                          itemCount: linkCategories.length,
+                                          separatorBuilder: (_, __) =>
+                                              const SizedBox(width: 5),
+                                          itemBuilder:
+                                              (
+                                                context,
+                                                categoryIndex,
+                                              ) => Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 5,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(
+                                                    0xFF273449,
+                                                  ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                ),
+                                                child: Text(
+                                                  linkCategories[categoryIndex],
+                                                  style: const TextStyle(
+                                                    color: _accent,
+                                                    fontSize: 10,
+                                                  ),
+                                                ),
+                                              ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: 'Edit bookmark',
-                              icon: const Icon(
-                                Icons.edit_outlined,
-                                color: Colors.white70,
-                              ),
-                              onPressed: () => _editLink(link),
-                            ),
-                            IconButton(
-                              tooltip: 'Remove link',
-                              icon: const Icon(
-                                Icons.delete_outline,
-                                color: Colors.white70,
-                              ),
-                              onPressed: () => _deleteLink(link),
-                            ),
-                          ],
-                        ),
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Website opening will be added next.',
                               ),
                             ),
                           );
                         },
-                      ),
-                    );
-                  }),
+                      );
+                    },
+                  ),
                 const SizedBox(height: 80),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _websiteIcon(String url) {
+    // Accept links with or without https://
+    final input = url.trim();
+    final normalized = input.contains('://') ? input : 'https://$input';
+
+    final uri = Uri.tryParse(normalized);
+    var host = uri?.host.toLowerCase() ?? '';
+
+    // Remove www. so the domain is cleaner.
+    if (host.startsWith('www.')) {
+      host = host.substring(4);
+    }
+
+    if (host.isEmpty || !host.contains('.')) {
+      return CircleAvatar(
+        radius: 17,
+        backgroundColor: const Color(0xFF273449),
+        child: Icon(_platformIcon(url), color: _accent, size: 19),
+      );
+    }
+
+    final faviconUrl = 'https://icon.horse/icon/${Uri.encodeComponent(host)}';
+
+    return CircleAvatar(
+      radius: 17,
+      backgroundColor: const Color(0xFF273449),
+      child: ClipOval(
+        child: Image.network(
+          faviconUrl,
+          width: 25,
+          height: 25,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) {
+            return Icon(_platformIcon(url), color: _accent, size: 19);
+          },
         ),
       ),
     );
@@ -744,39 +865,6 @@ class _DashboardPageState extends State<DashboardPage> {
     }
 
     return Icons.language;
-  }
-
-  Widget _statCard(IconData icon, String value, String label) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: _surface,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: _accent, size: 28),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(label, style: const TextStyle(color: Colors.white60)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 
