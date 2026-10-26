@@ -376,6 +376,7 @@ class _DashboardPageState extends State<DashboardPage> {
     final user = FirebaseAuth.instance.currentUser;
     final filteredLinks = _filteredLinks;
     final categories = ['All', ..._availableCategories];
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
 
     return Scaffold(
       backgroundColor: _background,
@@ -418,32 +419,35 @@ class _DashboardPageState extends State<DashboardPage> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1100),
             child: ListView(
-              padding: const EdgeInsets.all(24),
+              padding: EdgeInsets.all(isMobile ? 12 : 24),
               children: [
-                const Text(
-                  'YOUR DIGITAL LIBRARY',
-                  style: TextStyle(
-                    color: _accent,
-                    letterSpacing: 2,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
+                if (!isMobile)
+                  const Text(
+                    'YOUR DIGITAL LIBRARY',
+                    style: TextStyle(
+                      color: _accent,
+                      letterSpacing: 2,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
+                SizedBox(height: isMobile ? 2 : 12),
+                Text(
                   'Save what matters.',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 32,
+                    fontSize: isMobile ? 23 : 32,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Your useful websites, all in one place.',
-                  style: TextStyle(color: Colors.white70),
-                ),
-                const SizedBox(height: 28),
+                if (!isMobile) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Your useful websites, all in one place.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ],
+                SizedBox(height: isMobile ? 12 : 28),
 
                 // Search
                 TextField(
@@ -468,41 +472,37 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 20),
+                SizedBox(height: isMobile ? 10 : 20),
 
-                const SizedBox(height: 24),
-
-                // Category filters
-                const Text(
-                  'Categories',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
+                // Category filters: horizontal chips on phones, wrapping chips on wide screens.
+                if (!isMobile) ...[
+                  const Text(
+                    'Categories',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
+                  const SizedBox(height: 12),
+                ],
+                SizedBox(
+                  height: isMobile ? 42 : null,
+                  child: isMobile
+                      ? ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: categories.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 8),
+                          itemBuilder: (context, index) =>
+                              _buildCategoryChip(categories[index]),
+                        )
+                      : Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: categories.map(_buildCategoryChip).toList(),
+                        ),
                 ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: categories.map((category) {
-                    return ChoiceChip(
-                      label: Text(category),
-                      selected: _selectedCategory == category,
-                      onSelected: (_) {
-                        setState(() => _selectedCategory = category);
-                      },
-                      selectedColor: _accent,
-                      backgroundColor: _surface,
-                      labelStyle: TextStyle(
-                        color: _selectedCategory == category
-                            ? _background
-                            : Colors.white70,
-                      ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 28),
+                SizedBox(height: isMobile ? 16 : 28),
 
                 // Saved links
                 Row(
@@ -579,6 +579,212 @@ class _DashboardPageState extends State<DashboardPage> {
                           ? 2
                           : 1;
 
+                      Widget buildBookmarkCard(int index) {
+                        final link = filteredLinks[index];
+                        final url = (link['url'] ?? '').toString();
+                        final rawCategories = link['categories'];
+                        final List<String> linkCategories =
+                            rawCategories is List
+                            ? rawCategories
+                                  .map((item) => item.toString())
+                                  .toList()
+                            : link['category'] is String
+                            ? [link['category'] as String]
+                            : [];
+
+                        return Card(
+                          color: _surface,
+                          margin: EdgeInsets.zero,
+                          clipBehavior: Clip.antiAlias,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            side: BorderSide(
+                              color: Colors.white.withValues(alpha: 0.05),
+                            ),
+                          ),
+                          child: InkWell(
+                            onTap: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Website opening will be added next.',
+                                  ),
+                                ),
+                              );
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      _websiteIcon(url),
+                                      const SizedBox(width: 9),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              (link['title'] ?? 'Untitled')
+                                                  .toString(),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              Uri.tryParse(url)?.host ?? url,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: Colors.white54,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      PopupMenuButton<String>(
+                                        tooltip: 'Bookmark actions',
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(
+                                          minWidth: 40,
+                                          minHeight: 36,
+                                        ),
+                                        iconSize: 19,
+                                        onSelected: (action) {
+                                          if (action == 'edit') {
+                                            _editLink(link);
+                                          } else if (action == 'delete') {
+                                            _deleteLink(link);
+                                          }
+                                        },
+                                        itemBuilder: (context) => const [
+                                          PopupMenuItem(
+                                            value: 'edit',
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.edit_outlined,
+                                                  size: 18,
+                                                ),
+                                                SizedBox(width: 8),
+                                                Text('Edit'),
+                                              ],
+                                            ),
+                                          ),
+                                          PopupMenuItem(
+                                            value: 'delete',
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.delete_outline,
+                                                  size: 18,
+                                                ),
+                                                SizedBox(width: 8),
+                                                Text('Delete'),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    url,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white60,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  if ((link['note'] ?? '')
+                                      .toString()
+                                      .trim()
+                                      .isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      link['note'].toString(),
+                                      // On phones, let the card grow naturally
+                                      // for longer notes rather than reserving
+                                      // empty space for every bookmark.
+                                      maxLines: isMobile ? null : 2,
+                                      overflow: isMobile
+                                          ? TextOverflow.visible
+                                          : TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12,
+                                        height: 1.3,
+                                      ),
+                                    ),
+                                  ],
+                                  if (linkCategories.isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    SizedBox(
+                                      height: 27,
+                                      child: ListView.separated(
+                                        scrollDirection: Axis.horizontal,
+                                        itemCount: linkCategories.length,
+                                        separatorBuilder: (_, _) =>
+                                            const SizedBox(width: 5),
+                                        itemBuilder: (context, categoryIndex) =>
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 5,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF273449),
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                linkCategories[categoryIndex],
+                                                style: const TextStyle(
+                                                  color: _accent,
+                                                  fontSize: 10,
+                                                ),
+                                              ),
+                                            ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+
+                      if (isMobile) {
+                        // Intrinsic-height cards: no-note bookmarks stay compact,
+                        // while cards with notes expand only as much as needed.
+                        return Column(
+                          children: [
+                            for (
+                              var index = 0;
+                              index < filteredLinks.length;
+                              index++
+                            ) ...[
+                              if (index > 0) const SizedBox(height: 8),
+                              buildBookmarkCard(index),
+                            ],
+                          ],
+                        );
+                      }
+
                       return GridView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
@@ -589,204 +795,8 @@ class _DashboardPageState extends State<DashboardPage> {
                           mainAxisSpacing: 12,
                           mainAxisExtent: 224,
                         ),
-                        itemBuilder: (context, index) {
-                          final link = filteredLinks[index];
-                          final url = (link['url'] ?? '').toString();
-                          final rawCategories = link['categories'];
-                          final List<String> linkCategories =
-                              rawCategories is List
-                              ? rawCategories
-                                    .map((item) => item.toString())
-                                    .toList()
-                              : link['category'] is String
-                              ? [link['category'] as String]
-                              : [];
-
-                          return Card(
-                            color: _surface,
-                            margin: EdgeInsets.zero,
-                            clipBehavior: Clip.antiAlias,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              side: BorderSide(
-                                color: Colors.white.withValues(alpha: 0.05),
-                              ),
-                            ),
-                            child: InkWell(
-                              onTap: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Website opening will be added next.',
-                                    ),
-                                  ),
-                                );
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        _websiteIcon(url),
-                                        const SizedBox(width: 9),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                (link['title'] ?? 'Untitled')
-                                                    .toString(),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.w600,
-                                                  fontSize: 14,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                Uri.tryParse(url)?.host ?? url,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  color: Colors.white54,
-                                                  fontSize: 11,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        PopupMenuButton<String>(
-                                          tooltip: 'Bookmark actions',
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(
-                                            minWidth: 40,
-                                            minHeight: 36,
-                                          ),
-                                          iconSize: 19,
-                                          onSelected: (action) {
-                                            if (action == 'edit') {
-                                              _editLink(link);
-                                            } else if (action == 'delete') {
-                                              _deleteLink(link);
-                                            }
-                                          },
-                                          itemBuilder: (context) => const [
-                                            PopupMenuItem(
-                                              value: 'edit',
-                                              child: Row(
-                                                children: [
-                                                  Icon(
-                                                    Icons.edit_outlined,
-                                                    size: 18,
-                                                  ),
-                                                  SizedBox(width: 8),
-                                                  Text('Edit'),
-                                                ],
-                                              ),
-                                            ),
-                                            PopupMenuItem(
-                                              value: 'delete',
-                                              child: Row(
-                                                children: [
-                                                  Icon(
-                                                    Icons.delete_outline,
-                                                    size: 18,
-                                                  ),
-                                                  SizedBox(width: 8),
-                                                  Text('Delete'),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 10),
-                                    Text(
-                                      url,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.white60,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                    if ((link['note'] ?? '')
-                                        .toString()
-                                        .trim()
-                                        .isNotEmpty) ...[
-                                      const SizedBox(height: 7),
-                                      Text(
-                                        link['note'].toString(),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 12,
-                                          height: 1.3,
-                                        ),
-                                      ),
-                                    ] else ...[
-                                      const SizedBox(height: 7),
-                                      const Text(
-                                        'No personal note',
-                                        maxLines: 1,
-                                        style: TextStyle(
-                                          color: Colors.white38,
-                                          fontSize: 11,
-                                          fontStyle: FontStyle.italic,
-                                        ),
-                                      ),
-                                    ],
-                                    const Spacer(),
-                                    if (linkCategories.isNotEmpty)
-                                      SizedBox(
-                                        height: 27,
-                                        child: ListView.separated(
-                                          scrollDirection: Axis.horizontal,
-                                          itemCount: linkCategories.length,
-                                          separatorBuilder: (_, __) =>
-                                              const SizedBox(width: 5),
-                                          itemBuilder:
-                                              (
-                                                context,
-                                                categoryIndex,
-                                              ) => Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 5,
-                                                    ),
-                                                decoration: BoxDecoration(
-                                                  color: const Color(
-                                                    0xFF273449,
-                                                  ),
-                                                  borderRadius:
-                                                      BorderRadius.circular(6),
-                                                ),
-                                                child: Text(
-                                                  linkCategories[categoryIndex],
-                                                  style: const TextStyle(
-                                                    color: _accent,
-                                                    fontSize: 10,
-                                                  ),
-                                                ),
-                                              ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
+                        itemBuilder: (context, index) =>
+                            buildBookmarkCard(index),
                       );
                     },
                   ),
@@ -796,6 +806,22 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildCategoryChip(String category) {
+    return ChoiceChip(
+      label: Text(category),
+      selected: _selectedCategory == category,
+      onSelected: (_) {
+        setState(() => _selectedCategory = category);
+      },
+      selectedColor: _accent,
+      backgroundColor: _surface,
+      labelStyle: TextStyle(
+        color: _selectedCategory == category ? _background : Colors.white70,
+      ),
+      visualDensity: VisualDensity.compact,
     );
   }
 
